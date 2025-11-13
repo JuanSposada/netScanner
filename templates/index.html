@@ -1,111 +1,165 @@
+<!-- templates/index.html -->
+
 <!DOCTYPE html>
+
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Monitor de Equipos en Red</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 900px; margin: 0 auto; }
-        .header { margin-bottom: 20px; }
-        #network-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        #network-table th, #network-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        #network-table th { background-color: #f2f2f2; }
+<meta charset="UTF-8">
+<title>Monitor de Equipos en Red</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+.container { max-width: 900px; margin: 0 auto; }
+.header { margin-bottom: 20px; }
+#network-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+#network-table th, #network-table td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+#network-table th { background-color: #f2f2f2; }
 
-        /* Clases de colores para los distintivos */
-        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 5px; }
-        .ACTIVO { background-color: green; } /* Requisito: IP Activa (Verde) */
-        .AUSENTE_UNA_VEZ { background-color: gray; } /* Requisito: IP detectada, ahora inactiva (Gris) */
-        
-        /* Estilos para IPs "grises" */
-        .AUSENTE_UNA_VEZ-row { background-color: #f0f0f0; color: #888; }
-    </style>
+    /* Clases de colores para los distintivos */
+    .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+    .ACTIVO { background-color: green; } /* Requisito: IP Activa (Verde) */
+    .AUSENTE_UNA_VEZ { background-color: gray; } /* Requisito: IP detectada, ahora inactiva (Gris) */
+    
+    /* Estilos para IPs "grises" */
+    .AUSENTE_UNA_VEZ-row { background-color: #f0f0f0; color: #888; }
+
+    /* Estilo para botón de carga */
+    .loading-spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        animation: spin 1s linear infinite;
+        display: none; /* Oculto por defecto */
+        margin-left: 10px;
+        vertical-align: middle;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    #scan-button {
+        padding: 8px 15px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    #scan-button:disabled {
+        background-color: #888;
+        cursor: not-allowed;
+    }
+
+</style>
+
+
 </head>
 <body>
-    <div class="container">
-        <h1>🟢 Monitor de Equipos en Red</h1>
+<div class="container">
+<h1>🟢 Monitor de Equipos en Red</h1>
 
-        <div class="header">
-            <label for="range_input">Rango de Red (CIDR):</label>
-            <input type="text" id="range_input" value="{{ default_range }}" size="20">
-            <button onclick="iniciarEscaneo()">Escanear Red</button>
-            <p id="status_message">Listo. Rango actual: <b>{{ default_range }}</b>. Pulse "Escanear Red".</p>
-        </div>
-
-        <table id="network-table">
-            <thead>
-                <tr>
-                    <th>Estado</th>
-                    <th>Dirección IP</th>
-                    <th>Nombre de Host</th>
-                    <th>MAC Address</th>
-                </tr>
-            </thead>
-            <tbody id="network-body">
-                </tbody>
-        </table>
+    <div class="header">
+        <label for="range_input">Rango de Red (CIDR):</label>
+        <input type="text" id="range_input" value="{{ default_range }}" size="20">
+        <button id="scan-button" onclick="iniciarEscaneo()">Escanear Red</button>
+        <span id="loading-spinner" class="loading-spinner"></span>
+        <p id="status_message">Listo. Rango actual: <b>{{ default_range }}</b>. Pulse "Escanear Red".</p>
     </div>
 
-    <script>
-        // Función principal para iniciar el escaneo
-        function iniciarEscaneo() {
-            const range = document.getElementById('range_input').value.trim();
-            if (!range) {
-                alert("Por favor, ingrese un rango de red válido.");
-                return;
+    <table id="network-table">
+        <thead>
+            <tr>
+                <th>Estado</th>
+                <th>Dirección IP</th>
+                <th>Nombre de Host</th>
+                <th>MAC Address</th>
+            </tr>
+        </thead>
+        <tbody id="network-body">
+            <!-- Los resultados del escaneo se insertarán aquí -->
+        </tbody>
+    </table>
+</div>
+
+<script>
+    const statusMsg = document.getElementById('status_message');
+    const spinner = document.getElementById('loading-spinner');
+    const scanButton = document.getElementById('scan-button');
+
+    // Función principal para iniciar el escaneo
+    function iniciarEscaneo() {
+        const range = document.getElementById('range_input').value.trim();
+        if (!range) {
+            // NOTA: Se evita usar alert() en entornos de producción, pero lo mantenemos aquí
+            // por simplicidad en esta implementación.
+            alert("Por favor, ingrese un rango de red válido.");
+            return;
+        }
+
+        // Deshabilitar botón e iniciar spinner
+        scanButton.disabled = true;
+        spinner.style.display = 'inline-block';
+        
+        // *** ESTA ES LA ACTUALIZACIÓN CLAVE PARA VER EL PROGRESO ***
+        statusMsg.innerHTML = `Escaneando **${range}**... Revisa la consola de Flask para ver el progreso en tiempo real.`;
+        
+        // Llama al backend (app.py)
+        fetch('/scan', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ rango: range })
+        })
+        .then(response => response.json())
+        .then(data => {
+            actualizarTabla(data.dispositivos);
+            statusMsg.innerHTML = `Escaneo de **${data.rango_usado}** completado. Resultados actualizados.`;
+        })
+        .catch((error) => {
+            console.error('Error:', error);
+            statusMsg.innerHTML = 'Error al conectar con el servidor o ejecutar el escaneo.';
+        })
+        .finally(() => {
+            // Habilitar botón y detener spinner
+            scanButton.disabled = false;
+            spinner.style.display = 'none';
+        });
+    }
+
+    // Función para actualizar la tabla con los resultados del backend
+    function actualizarTabla(dispositivos) {
+        const tbody = document.getElementById('network-body');
+        tbody.innerHTML = ''; // Limpiar la tabla
+
+        dispositivos.forEach(device => {
+            const row = tbody.insertRow();
+            
+            // Aplicar la clase para la fila gris si está ausente una vez
+            if (device.estado === 'AUSENTE_UNA_VEZ') {
+                row.classList.add('AUSENTE_UNA_VEZ-row');
             }
 
-            const statusMsg = document.getElementById('status_message');
-            statusMsg.innerHTML = `Escaneando **${range}**... Esto puede tardar varios minutos para rangos grandes (ej. /21).`;
+            // Columna 1: Estado (con distintivo de color)
+            let statusCell = row.insertCell();
+            statusCell.innerHTML = `<span class="status-dot ${device.estado}"></span> ${device.estado.replace('_UNA_VEZ', ' (Ausente)')}`;
             
-            // Llama al backend (app.py)
-            fetch('/scan', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ rango: range })
-            })
-            .then(response => response.json())
-            .then(data => {
-                actualizarTabla(data.dispositivos);
-                statusMsg.innerHTML = `Escaneo de **${data.rango_usado}** completado. Resultados actualizados.`;
-            })
-            .catch((error) => {
-                console.error('Error:', error);
-                statusMsg.innerHTML = 'Error al conectar con el servidor o ejecutar el escaneo.';
-            });
-        }
+            // Columna 2: IP
+            let ipCell = row.insertCell();
+            ipCell.textContent = device.ip;
+            
+            // Columna 3: Nombre
+            let nameCell = row.insertCell();
+            nameCell.textContent = device.nombre;
 
-        // Función para actualizar la tabla con los resultados del backend
-        function actualizarTabla(dispositivos) {
-            const tbody = document.getElementById('network-body');
-            tbody.innerHTML = ''; // Limpiar la tabla
+            // Columna 4: MAC
+            let macCell = row.insertCell();
+            macCell.textContent = device.mac;
+        });
+    }
+</script>
 
-            dispositivos.forEach(device => {
-                const row = tbody.insertRow();
-                
-                // Aplicar la clase para la fila gris si está ausente una vez
-                if (device.estado === 'AUSENTE_UNA_VEZ') {
-                    row.classList.add('AUSENTE_UNA_VEZ-row');
-                }
 
-                // Columna 1: Estado (con distintivo de color)
-                let statusCell = row.insertCell();
-                statusCell.innerHTML = `<span class="status-dot ${device.estado}"></span> ${device.estado.replace('_UNA_VEZ', '')}`;
-                
-                // Columna 2: IP
-                let ipCell = row.insertCell();
-                ipCell.textContent = device.ip;
-                
-                // Columna 3: Nombre
-                let nameCell = row.insertCell();
-                nameCell.textContent = device.nombre;
-
-                // Columna 4: MAC
-                let macCell = row.insertCell();
-                macCell.textContent = device.mac;
-            });
-        }
-    </script>
 </body>
 </html>
